@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunar Lander · PPO Agent</title>
+<meta name="description" content="A reinforcement learning agent (PPO, Stable-Baselines3) trained to land a rocket in Gymnasium's Lunar Lander. Press LAND.">
+<meta property="og:title" content="Lunar Lander · PPO Agent">
+<meta property="og:description" content="An AI that taught itself to land a rocket. Press LAND.">
+<meta property="og:image" content="media/poster_21.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05060a;
+    --panel: #0d0f15;
+    --line: rgba(255, 255, 255, 0.12);
+    --text: #eef0f4;
+    --dim: #9aa0ad;
+    --glow: rgba(255, 170, 90, 0.55);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font-family: "Barlow", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+
+  .stage {
+    position: relative;
+    width: 100%;
+    max-width: calc(100vh * 16 / 9);
+    margin: 0 auto;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    overflow: hidden;
+  }
+  .stage video {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    background: #000;
+  }
+  .stage video.hidden { visibility: hidden; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: clamp(14px, 2.4vw, 28px);
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.62) 75%);
+    transition: opacity 0.5s ease;
+    text-align: center;
+    padding: 16px;
+  }
+  .overlay.gone { opacity: 0; pointer-events: none; }
+  .kicker {
+    font-family: "Barlow Condensed", sans-serif; font-weight: 500;
+    letter-spacing: 0.42em; text-transform: uppercase;
+    font-size: clamp(11px, 1.3vw, 15px); color: var(--dim);
+  }
+  .headline {
+    font-family: "Barlow Condensed", sans-serif; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    font-size: clamp(26px, 4.6vw, 64px); line-height: 1.02; margin: 0;
+    text-shadow: 0 2px 30px rgba(0,0,0,0.6);
+  }
+  .land {
+    position: relative;
+    font-family: "Barlow Condensed", sans-serif; font-weight: 600;
+    font-size: clamp(18px, 2.2vw, 26px); letter-spacing: 0.5em; text-indent: 0.5em;
+    color: #fff; background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.85); border-radius: 999px;
+    padding: clamp(14px, 1.6vw, 20px) clamp(42px, 5vw, 70px);
+    cursor: pointer;
+    box-shadow: 0 0 0 0 var(--glow);
+    transition: background 0.2s, transform 0.15s, box-shadow 0.3s;
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .land:hover { background: rgba(255,255,255,0.14); transform: translateY(-1px); }
+  .land:active { transform: translateY(1px); }
+  .land:focus-visible { outline: 2px solid #ffb46e; outline-offset: 4px; }
+  .land[disabled] { animation: none; opacity: 0.7; cursor: progress; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,170,90,0.0), 0 0 24px rgba(255,170,90,0.12); }
+    50%      { box-shadow: 0 0 0 10px rgba(255,170,90,0.0), 0 0 40px rgba(255,170,90,0.35); }
+  }
+  .hint { font-size: clamp(11px, 1.1vw, 13px); color: var(--dim); letter-spacing: 0.18em; text-transform: uppercase; }
+  .result {
+    font-family: "Barlow Condensed", sans-serif; font-size: clamp(13px, 1.4vw, 17px);
+    letter-spacing: 0.28em; text-transform: uppercase; color: var(--dim); min-height: 1.2em;
+  }
+  .result b { color: var(--text); font-weight: 600; }
+
+  .mute {
+    position: absolute; right: 14px; bottom: 14px;
+    background: rgba(0,0,0,0.45); color: #fff; border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 12px; font: 500 12px "Barlow", sans-serif;
+    letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .stage.playing .mute { opacity: 0.8; }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 56px 16px 72px; }
+  h2 {
+    font-family: "Barlow Condensed", sans-serif; font-weight: 500;
+    letter-spacing: 0.32em; text-transform: uppercase; font-size: 15px; color: var(--dim);
+    margin: 0 0 18px;
+  }
+  .lede { font-size: clamp(17px, 2vw, 21px); line-height: 1.55; max-width: 760px; margin: 0 0 40px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .card { background: var(--panel); padding: 22px 20px 24px; }
+  .card .num { font-family: "Barlow Condensed", sans-serif; font-size: 40px; font-weight: 600; line-height: 1; }
+  .card .lbl { font-family: "Barlow Condensed", sans-serif; letter-spacing: 0.22em; text-transform: uppercase; font-size: 13px; color: var(--dim); margin-top: 8px; }
+  .card p { margin: 12px 0 0; color: var(--dim); font-size: 15px; line-height: 1.5; }
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 48px; }
+  .notes p { color: var(--dim); line-height: 1.6; margin: 0; }
+  .notes p strong { color: var(--text); font-weight: 500; }
+  footer { border-top: 1px solid var(--line); margin-top: 56px; padding-top: 22px; display: flex; flex-wrap: wrap; gap: 12px 28px; color: var(--dim); font-size: 14px; }
+  footer a { text-decoration: none; border-bottom: 1px solid var(--line); }
+  footer a:hover { color: var(--text); border-color: var(--text); }
+
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr 1fr; }
+    .notes { grid-template-columns: 1fr; gap: 24px; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<section class="stage" id="stage">
+  <video id="vA" playsinline preload="auto" poster="media/poster_21.jpg"></video>
+  <video id="vB" class="hidden" playsinline preload="auto"></video>
+
+  <div class="overlay" id="overlay">
+    <div class="kicker">Reinforcement learning · PPO agent</div>
+    <h1 class="headline">An AI that taught itself<br>to land a rocket</h1>
+    <button class="land" id="land" aria-label="Start the landing">LAND</button>
+    <div class="result" id="result"></div>
+    <div class="hint">Sound on · press space</div>
+  </div>
+
+  <button class="mute" id="mute" aria-label="Mute sound">Sound on</button>
+</section>
+
+<main>
+  <h2>How it works</h2>
+  <p class="lede">
+    Nobody programmed this landing. A small neural network flew the rocket thousands of times in
+    Gymnasium's Lunar Lander, scored each attempt, and slowly nudged its own weights toward whatever
+    earned more points. Every press of LAND replays a real episode flown by the trained agent.
+  </p>
+
+  <div class="grid">
+    <div class="card"><div class="num">8</div><div class="lbl">Numbers in</div><p>Position, velocity, tilt, spin and two leg-contact sensors, 50 times a second. It never sees the picture.</p></div>
+    <div class="card"><div class="num">4</div><div class="lbl">Actions out</div><p>Do nothing, fire the left thruster, fire the main engine, or fire the right thruster.</p></div>
+    <div class="card"><div class="num">64×64</div><div class="lbl">Policy network</div><p>A two-layer MLP from Stable-Baselines3, trained with PPO for 1M steps on a laptop CPU.</p></div>
+    <div class="card"><div class="num" id="solved">95%</div><div class="lbl">Episodes landed</div><p id="solvedText">38 of 40 test episodes landed safely. A score of 200 or more counts as solved.</p></div>
+  </div>
+
+  <div class="notes">
+    <p><strong>Reward shaping.</strong> The agent learns exactly what it is scored on. Paying +1 for every frame spent upright and slow taught it to hover forever instead of landing (reward hacking). The fix: reward getting better between frames, not sitting in a nice spot, and charge a small fee for every frame so waiting costs something.</p>
+    <p><strong>What you're watching.</strong> The physics, the trained policy and the touchdown are real. The visuals and sound are drawn and synthesized on top, frame by frame from the logged episode: engine on or off, thruster pulses, altitude, leg deploy and contact.</p>
+  </div>
+
+  <footer>
+    <span>Built with Gymnasium, Box2D, Stable-Baselines3 and PyTorch</span>
+    <a id="repo" href="#" hidden>Source code on GitHub</a>
+  </footer>
+</main>
+
+<script>
+  // Each entry is one real episode flown by the trained agent (rendered by cinematic.py).
+  const EPISODES = [
+    { seed: 21, score: 296.0, secs: 6.3 },
+    { seed: 6,  score: 295.5, secs: 7.3 },
+    { seed: 29, score: 290.0, secs: 7.0 },
+    { seed: 18, score: 284.5, secs: 7.5 },
+  ];
+  const src = (ep) => `media/landing_${ep.seed}.mp4`;
+
+  const stage = document.getElementById("stage");
+  const overlay = document.getElementById("overlay");
+  const landBtn = document.getElementById("land");
+  const result = document.getElementById("result");
+  const muteBtn = document.getElementById("mute");
+  let players = [document.getElementById("vA"), document.getElementById("vB")];
+  let order = [0, ...shuffle([1, 2, 3])];
+  let pos = 0;
+  let muted = false;
+
+  function shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  const epAt = (p) => EPISODES[order[p % order.length]];
+
+  players[0].src = src(epAt(0));
+  players[1].src = src(epAt(1));
+
+  function land() {
+    if (landBtn.disabled) return;
+    const ep = epAt(pos);
+    const v = players[0];
+    landBtn.disabled = true;
+    landBtn.textContent = "IGNITION";
+    if (v.error) v.load();   // retry a video that failed to load
+    v.muted = muted;
+    v.currentTime = 0;
+    const started = v.play();
+    const go = () => {
+      v.classList.remove("hidden");
+      players[1].classList.add("hidden");
+      overlay.classList.add("gone");
+      stage.classList.add("playing");
+    };
+    if (started && started.then) {
+      started.then(go).catch(() => { landBtn.disabled = false; landBtn.textContent = "LAND"; });
+    } else {
+      go();
+    }
+    v.onended = () => {
+      result.innerHTML = `Episode ${ep.seed} &nbsp;·&nbsp; score <b>${ep.score.toFixed(1)}</b> &nbsp;·&nbsp; ${ep.secs.toFixed(1)} s`;
+      landBtn.textContent = "LAND AGAIN";
+      landBtn.disabled = false;
+      overlay.classList.remove("gone");
+      stage.classList.remove("playing");
+      // swap players: the preloaded one becomes current, queue the next episode
+      pos += 1;
+      players = [players[1], players[0]];
+      players[1].src = src(epAt(pos + 1));
+      players[1].load();
+    };
+  }
+
+  landBtn.addEventListener("click", land);
+  document.addEventListener("keydown", (e) => {
+    if ((e.code === "Space" || e.code === "Enter") && !overlay.classList.contains("gone")) {
+      e.preventDefault();
+      land();
+    }
+  });
+  muteBtn.addEventListener("click", () => {
+    muted = !muted;
+    players.forEach((p) => (p.muted = muted));
+    muteBtn.textContent = muted ? "Sound off" : "Sound on";
+    muteBtn.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
+  });
+
+  // On GitHub Pages (user.github.io/repo) link back to the repository automatically.
+  const host = location.hostname;
+  if (host.endsWith(".github.io")) {
+    const user = host.replace(".github.io", "");
+    const repo = location.pathname.split("/").filter(Boolean)[0];
+    const a = document.getElementById("repo");
+    a.href = repo ? `https://github.com/${user}/${repo}` : `https://github.com/${user}`;
+    a.hidden = false;
+  }
+</script>
+</body>
+</html>
